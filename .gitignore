@@ -18,6 +18,7 @@ ENV/
 env/
 env.bak/
 *.env
+.venv
 
 # Pip / Poetry / Pipenv
 pip-log.txt
