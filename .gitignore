@@ -1,1 +1,59 @@
-.venv
+# ---------------------------
+# Python
+# ---------------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+.eggs/
+*.log
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+env.bak/
+*.env
+
+# Pip / Poetry / Pipenv
+pip-log.txt
+pip-delete-this-directory.txt
+poetry.lock
+Pipfile.lock
+
+# Coverage / testing
+htmlcov/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.pytest_cache/
+.tox/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Jupyter notebooks
+.ipynb_checkpoints
+
+# ---------------------------
+# Docker / Jenkins
+# ---------------------------
+# Docker build files
+*.pid
+*.seed
+*.pid.lock
+
+# Jenkins config (if stored locally)
+jenkins_home/
+jenkins/jenkins_configuration/
+
+# Docker Compose override files
+docker-compose.override.yml
