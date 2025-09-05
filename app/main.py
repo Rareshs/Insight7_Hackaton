@@ -1,26 +1,40 @@
-# app/main.py
+# app/main.py (adaugă)
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
+from collections import defaultdict
 
-# 1) Creează întâi instanța FastAPI
-app = FastAPI(title="BankScamGuard")
+app = FastAPI()
 
-# 2) Rute HTTP simple (opțional, pentru test rapid)
+# room -> set of websockets
+rooms: dict[str, set[WebSocket]] = defaultdict(set)
+
 @app.get("/")
-async def root():
-    return {"status": "ok"}
+def root():
+    return RedirectResponse("/chat")
 
-@app.get("/health")
-async def health():
-    return {"alive": True}
+@app.get("/chat")
+def chat_page():
+    # servește o pagină simplă (vezi HTML mai jos)
+    return HTMLResponse(open("app/templates/chat.html", "r", encoding="utf-8").read())
 
-# 3) Abia ACUM definește WebSocket-ul Twilio
-@app.websocket("/twilio-media")
-async def twilio_media(ws: WebSocket):
+@app.websocket("/ws/chat")
+async def ws_chat(ws: WebSocket, room: str, role: str):
     await ws.accept()
+    rooms[room].add(ws)
     try:
         while True:
-            msg = await ws.receive_text()   # Twilio trimite JSON text
-            print("Twilio event:", msg[:200])  # vezi în consolă start/media/stop
+            data = await ws.receive_json()  # { "role": "scammer|victim", "text": "..." }
+            # atașăm rolul trimis de client și retransmitem în cameră
+            payload = {"role": role, "text": data.get("text", "")}
+            dead = []
+            for peer in rooms[room]:
+                try:
+                    await peer.send_json(payload)
+                except WebSocketDisconnect:
+                    dead.append(peer)
+            for d in dead:
+                rooms[room].discard(d)
     except WebSocketDisconnect:
-        print("Twilio WS closed")
+        rooms[room].discard(ws)
+        if not rooms[room]:
+            rooms.pop(room, None)
