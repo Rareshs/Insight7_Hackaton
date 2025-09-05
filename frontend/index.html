@@ -1,0 +1,136 @@
+<!-- frontend/index.html -->
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Agora Voice Chat</title>
+  <script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.18.3.js"></script>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; }
+    h2 { margin-bottom: 8px; }
+    input, button { font-size: 14px; }
+    pre { background:#fafafa; padding:10px; min-height:150px; }
+  </style>
+</head>
+<body>
+  <h2>Agora Real-Time Voice + Whisper Transcript</h2>
+  <input id="channel" placeholder="Enter channel name" value="test" />
+  <button id="joinBtn">Join Call</button>
+  <button id="leaveBtn" disabled>Leave Call</button>
+  <pre id="transcript"></pre>
+
+  <script>
+    // ----- config
+    const API_BASE = "http://localhost:8000"; // change to http://<your-ip>:8000 for phone testing
+
+    // ----- load APP_ID first (and expose a promise we can await)
+    let APP_ID = "";
+    const envReady = (async () => {
+      const res = await fetch(`${API_BASE}/env`);
+      const data = await res.json();
+      APP_ID = (data.AGORA_APP_ID || "").trim();
+      if (!APP_ID) throw new Error("AGORA_APP_ID missing from backend");
+      console.log("Loaded APP_ID:", APP_ID, "len:", APP_ID.length);
+    })();
+
+    // ----- agora client
+    const client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
+    let localTrack = null;
+    let mediaRecorder = null;
+    let joinedChannel = "";
+    let uid = null;
+
+    // subscribe to remote users so you can hear the other person
+    client.on("user-published", async (user, mediaType) => {
+      try {
+        await client.subscribe(user, mediaType);
+        if (mediaType === "audio") {
+          const remoteTrack = user.audioTrack;
+          remoteTrack.play(); // plays via a hidden <audio> element
+          console.log("Playing remote audio from uid:", user.uid);
+        }
+      } catch (e) {
+        console.error("Subscribe failed:", e);
+      }
+    });
+
+    client.on("user-unpublished", (user) => {
+      console.log("User unpublished:", user.uid);
+    });
+
+    // ----- join / leave
+    document.getElementById("joinBtn").onclick = joinChannel;
+    document.getElementById("leaveBtn").onclick = leaveChannel;
+
+    async function joinChannel() {
+      try {
+        await envReady; // ensure APP_ID is ready
+
+        const channelName = (document.getElementById("channel").value || "").trim();
+        if (!channelName) return alert("Enter a channel name");
+
+        // unique uid per client
+        uid = String(Date.now() + Math.floor(Math.random() * 1000));
+
+        await client.join(APP_ID, channelName, null, uid);
+        localTrack = await AgoraRTC.createMicrophoneAudioTrack();
+        await client.publish([localTrack]);
+        console.log("Joined channel:", channelName, "uid:", uid);
+
+        joinedChannel = channelName;
+        document.getElementById("joinBtn").disabled = true;
+        document.getElementById("leaveBtn").disabled = false;
+
+        startStreamingAudio(localTrack);
+      } catch (e) {
+        console.error("Join failed:", e);
+        alert("Join failed. Check console for details.");
+      }
+    }
+
+    async function leaveChannel() {
+      try {
+        if (mediaRecorder && mediaRecorder.state !== "inactive") {
+          mediaRecorder.stop();
+          mediaRecorder = null;
+        }
+        localTrack?.stop();
+        localTrack?.close();
+        await client.leave();
+        console.log("Left channel");
+      } catch (e) {
+        console.warn("Leave error:", e);
+      } finally {
+        document.getElementById("joinBtn").disabled = false;
+        document.getElementById("leaveBtn").disabled = true;
+        joinedChannel = "";
+      }
+    }
+
+    // ----- streaming chunks to backend every 5s
+    function startStreamingAudio(track) {
+      const mediaStream = new MediaStream([track.getMediaStreamTrack()]);
+      mediaRecorder = new MediaRecorder(mediaStream, { mimeType: "audio/webm" });
+
+      mediaRecorder.ondataavailable = async (e) => {
+        try {
+          if (!e.data || e.data.size === 0) return;
+
+          const blob = new Blob([e.data], { type: "audio/webm" });
+          const fd = new FormData();
+          fd.append("file", blob, "audio.webm");
+          fd.append("channel", joinedChannel); // 👈 backend uses this to save/merge
+
+          const resp = await fetch(`${API_BASE}/transcribe`, { method: "POST", body: fd });
+          const result = await resp.json();
+          document.getElementById("transcript").innerText += `\n> ${result.transcript ?? JSON.stringify(result)}`;
+        } catch (err) {
+          console.error("Chunk upload failed:", err);
+        }
+      };
+
+      mediaRecorder.start(5000); // every 5s
+    }
+  </script>
+</body>
+</html>
