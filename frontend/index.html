@@ -119,7 +119,7 @@
           const blob = new Blob([e.data], { type: "audio/webm" });
           const fd = new FormData();
           fd.append("file", blob, "audio.webm");
-          fd.append("channel", joinedChannel); // 👈 backend uses this to save/merge
+          fd.append("channel", joinedChannel); // 
 
           const resp = await fetch(`${API_BASE}/transcribe`, { method: "POST", body: fd });
           const result = await resp.json();
