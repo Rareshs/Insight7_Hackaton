@@ -59,5 +59,3 @@ def list_conversations(db: Session = Depends(get_db)):
             status=status
         ))
     return result
-
-
