@@ -63,3 +63,7 @@ jenkins/jenkins_configuration/
 
 # Docker Compose override files
 docker-compose.override.yml
+
+
+data
+.saved_audio

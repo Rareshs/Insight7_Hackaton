@@ -1,18 +1,19 @@
 # app/main.py
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
-from typing import Optional
+from typing import Optional, List
 from pathlib import Path
 import os, subprocess, traceback, time
-from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.schemas import AnalyzeRequest, AnalyzeResponse, CallCard
 from app.services.analyzer import analyze_messages
 from app.db.database import SessionLocal, engine
 from app.db import models
-from typing import List
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
 
 # ── env
 load_dotenv()
@@ -25,6 +26,14 @@ SAVE_DIR.mkdir(exist_ok=True)
 
 # ── app
 app = FastAPI()
+# Serve /static (optional)
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
+# Serve the voice UI (index.html)
+@app.get("/call")
+def serve_voice_ui():
+    return FileResponse("app/static/index.html")
+
 
 ALLOWED_ORIGINS = [
     "http://localhost:8080",
@@ -52,14 +61,12 @@ def get_env():
 @app.post("/transcribe")
 async def transcribe(
     file: UploadFile = File(...),
-    channel: Optional[str] = Form("default"),   # sent from frontend
+    channel: Optional[str] = Form("default"),
 ):
-    # --- directories & manifest for this channel
     chan_dir = SAVE_DIR / channel
     chan_dir.mkdir(parents=True, exist_ok=True)
-    manifest = chan_dir / "chunks.txt"  # ffmpeg concat list
+    manifest = chan_dir / "chunks.txt"
 
-    # 1) Save uploaded chunk to a persistent file
     ts = int(time.time() * 1000)
     webm_path = chan_dir / f"chunk_{ts}.webm"
     data = await file.read()
@@ -67,11 +74,9 @@ async def transcribe(
         out.write(data)
     print(f"[UPLOAD] {webm_path.name}  {len(data)} bytes")
 
-    # Keep track of order for merging later
     with open(manifest, "a", encoding="utf-8") as mf:
         mf.write(f"file '{webm_path.name}'\n")
 
-    # 2) Convert this chunk to wav (optional quick check)
     wav_path = webm_path.with_suffix(".wav")
     try:
         subprocess.run(
@@ -85,7 +90,6 @@ async def transcribe(
         print("[FFMPEG ERROR]\n", e.stderr.decode(errors="ignore"))
         return JSONResponse({"error": "ffmpeg conversion failed"}, status_code=400)
 
-    # 3) Whisper (optional)
     if not OPENAI_API_KEY:
         return {
             "transcript": f"[saved {wav_path.name}] (OPENAI_API_KEY not set)",
@@ -105,14 +109,13 @@ async def transcribe(
 
 @app.post("/merge")
 def merge_channel(channel: str):
-    """Merge all saved chunks for a channel into one .webm and .wav."""
     chan_dir = SAVE_DIR / channel
     manifest = chan_dir / "chunks.txt"
     if not manifest.exists():
         return JSONResponse({"error": "no chunks manifest for this channel"}, status_code=404)
 
     merged_webm = chan_dir / f"{channel}_merged.webm"
-    merged_wav  = chan_dir / f"{channel}_merged.wav"
+    merged_wav = chan_dir / f"{channel}_merged.wav"
 
     try:
         subprocess.run(
@@ -133,10 +136,7 @@ def merge_channel(channel: str):
 
     return {"merged_webm": str(merged_webm), "merged_wav": str(merged_wav)}
 
-
 models.Base.metadata.create_all(bind=engine)
-
-app = FastAPI()
 
 def get_db():
     db = SessionLocal()
@@ -155,7 +155,7 @@ def analyze_conversation(req: AnalyzeRequest, db: Session = Depends(get_db)):
         conv = models.Conversation(
             id=req.conversation_id,
             messages=full_text,
-            duration="02:15" 
+            duration="02:15"
         )
         db.add(conv)
 
@@ -165,7 +165,6 @@ def analyze_conversation(req: AnalyzeRequest, db: Session = Depends(get_db)):
 
     db.commit()
     return AnalyzeResponse(risk_score=score, flagged_words=flagged)
-
 
 @app.get("/conversations", response_model=List[CallCard])
 def list_conversations(db: Session = Depends(get_db)):
