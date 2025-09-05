@@ -5,3 +5,5 @@ dotenv
 uvicorn
 multipart
 agora-python-sdk
+sqlalchemy
+pydantic
