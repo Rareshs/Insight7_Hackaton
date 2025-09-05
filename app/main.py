@@ -58,5 +58,4 @@ def list_conversations(db: Session = Depends(get_db)):
             risk_score=score.risk_score,
             status=status
         ))
-
     return result
