@@ -56,35 +56,28 @@ def analyze_messages(base_url: str, messages: list[str]):
 
 
 def fetch_active_calls(base_url: str):
-    """GET /calls/active → list of calls or returns demo if missing."""
-    url = _join(base_url, "/calls/active")
+    """GET /conversations → list of calls from backend."""
+    url = _join(base_url, "/conversations")
     try:
         resp = requests.get(url, timeout=10)
         if resp.status_code != 200:
             raise RuntimeError(f"HTTP {resp.status_code}")
         calls = resp.json() or []
-        # Normalize to a common structure
         norm = []
         for c in calls:
             rs = c.get("risk_score", 0)
             score_ui = int(round(rs * 100)) if rs <= 1 else int(rs)
-            dur = c.get("duration_seconds")
-            if isinstance(dur, (int, float)):
-                mm = int(dur // 60)
-                ss = int(dur % 60)
-                duration = f"{mm:02d}:{ss:02d}"
-            else:
-                duration = c.get("duration", "--:--")
+            dur = c.get("duration", "--:--")
             norm.append({
-                "id": c.get("id", "----"),
-                "duration": duration,
+                "id": c.get("conversation_id", "----"),
+                "duration": dur,
                 "score": score_ui,
-                "live": bool(c.get("is_live", False)),
-                "last_update": c.get("last_update"),
+                "live": False,
+                "last_update": None
             })
         return {"ok": True, "items": norm}
     except Exception:
-        # Demo data fallback
+        # fallback demo
         demo = [
             {"id": "A1B2", "duration": "02:15", "score": 12,  "live": False},
             {"id": "B4C5", "duration": "08:42", "score": 65,  "live": False},
@@ -92,6 +85,7 @@ def fetch_active_calls(base_url: str):
             {"id": "D6E7", "duration": "12:58", "score": 91,  "live": True},
         ]
         return {"ok": True, "items": demo, "demo": True}
+
 
 
 def status_from_score(score_0_100: int):
