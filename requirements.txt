@@ -1,3 +1,7 @@
 openai
 fastapi
 streamlit
+dotenv
+uvicorn
+multipart
+agora-python-sdk
