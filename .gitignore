@@ -67,3 +67,6 @@ docker-compose.override.yml
 
 data
 .saved_audio
+*.saved_audio
+saved_audio/test
+saved_audio/
