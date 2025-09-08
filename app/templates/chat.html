@@ -304,6 +304,7 @@
   <div class="container">
     <h3>Chat demo <span id="role"></span></h3>
 
+
     <div class="wrap">
       <div class="col">
         <h4>Mesaje</h4>
@@ -335,8 +336,11 @@
     document.getElementById('role').textContent = role;
 
     // butonul End doar pentru victim
-    if (role === "victim") {
-      document.getElementById("endBar").style.display = "flex";
+    document.getElementById("endBar").style.display = "flex";  // show the bar
+ 
+    // ascunde doar butonul "End"
+    if (role !== "victim") {
+      document.getElementById("endBtn").style.display = "none";
     }
 
     // --- websocket (fără room)
