@@ -338,10 +338,7 @@
     // butonul End doar pentru victim
     document.getElementById("endBar").style.display = "flex";  // show the bar
  
-    // ascunde doar butonul "End"
-    if (role !== "victim") {
-      document.getElementById("endBtn").style.display = "none";
-    }
+   
 
     // --- websocket (fără room)
     const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -404,6 +401,7 @@
         .then(res => {
           console.log("Conversation ended:", res);
           try { ws.close(); } catch { }
+          window.location.href = "http://127.0.0.1:8501"; 
         });
     };
   </script>

@@ -403,3 +403,15 @@ if st.session_state.get("selected_call_id") and st.session_state.get("selected_c
         st.session_state.selected_call_id = None
         st.session_state.selected_call_details = None
         st.rerun()
+    
+    
+st.markdown(
+    """
+    <a href="https://192.168.198.7:8443/chat?room=demo1&role=victim" target="_blank">
+        <button style="padding:10px 20px;font-size:16px;font-weight:600;border:none;border-radius:8px;background:#0ea5e9;color:white;cursor:pointer;">
+            🕵️ Join Call
+        </button>
+    </a>
+    """,
+    unsafe_allow_html=True
+)
