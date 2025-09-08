@@ -1,0 +1,2 @@
+#run the program in bash with 
+python score_text.py --model .\artifacts\model_4class_lr_cv\lr_tfidf_4class_cv.joblib --file test_inputs.txt --as-one
