@@ -1,3 +1,4 @@
+
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.schemas import AnalyzeRequest, AnalyzeResponse, CallCard
@@ -59,3 +60,4 @@ def list_conversations(db: Session = Depends(get_db)):
             status=status
         ))
     return result
+
