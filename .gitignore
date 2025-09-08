@@ -66,3 +66,5 @@ docker-compose.override.yml
 
 192.168.198.7-key.pem
 192.168.198.7.pem
+
+exports/*

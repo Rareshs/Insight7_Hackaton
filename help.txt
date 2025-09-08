@@ -1,0 +1,7 @@
+uvicorn app.main:app --host 0.0.0.0 --port 8443 --ssl-certfile "C:\Insight7_Hackaton\192.168.198.7.pem" --ssl-keyfile "C:\Insight7_Hackaton\192.168.198.7-key.pem"
+https://192.168.198.7:8443/chat?room=demo1&role=victim
+https://192.168.198.7:8443/chat?room=demo1&role=scammer
+
+uvicorn app.main:app --reload --port 8000
+http://127.0.0.1:8000/chat?room=demo&role=scammer
+http://127.0.0.1:8000/chat?room=demo&role=victim
