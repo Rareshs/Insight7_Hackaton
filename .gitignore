@@ -26,6 +26,11 @@ pip-delete-this-directory.txt
 poetry.lock
 Pipfile.lock
 
+# DB Local
+data/*.db
+*.sqlite
+*.sqlite3
+
 # Coverage / testing
 htmlcov/
 .coverage
