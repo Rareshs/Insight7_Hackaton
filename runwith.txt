@@ -1,0 +1,2 @@
+#run the program with 
+python test_cv.py train-cv --data Transcripts_scored_risk_augmented.csv --k 3 --epochs 2 --alpha 0.5 --out artifacts_scams_cv
