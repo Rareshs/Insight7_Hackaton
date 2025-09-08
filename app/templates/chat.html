@@ -1,0 +1,120 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Chat scam demo</title>
+  <style>
+    body{font-family:system-ui;margin:20px}
+    .wrap{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .pane{border:1px solid #ddd;border-radius:8px;padding:10px;height:60vh;overflow:auto}
+    .me{color:#0a7}
+    .other{color:#06c}
+    .bar{margin-top:12px;display:flex;gap:8px}
+    input[type=text]{flex:1;padding:8px}
+    small{opacity:.7}
+    .row{display:flex;gap:8px;align-items:center;margin:8px 0}
+  </style>
+</head>
+<body>
+  <h3>Chat demo (<span id="role"></span>)</h3>
+
+
+  <div class="wrap">
+    <div>
+      <h4>Messages</h4>
+      <div id="msgs" class="pane"></div>
+      <div class="bar">
+        <input id="inp" type="text" placeholder="scrie mesajul..." />
+        <button id="send">Send</button>
+      </div>
+      <div class="bar">
+        <button id="micStart">🎙️ Start voice</button>
+        <button id="micStop">⏹️ Stop</button>
+      </div>
+      <div class="bar" id="endBar" style="display:none">
+        <button id="endBtn">❌ End Conversation</button>
+      </div>
+    </div>
+    <div>
+      <h4>Scam Detection (simple keywords)</h4>
+      <div id="alerts" class="pane"></div>
+    </div>
+  </div>
+
+<script>
+  // --- util: doar ROLE din URL; nu mai există "room"
+  const params = new URLSearchParams(location.search);
+  const role = params.get('role') || 'victim';
+  document.getElementById('role').textContent = role;
+
+  // butonul End doar pentru victim
+  if (role === "victim") {
+    document.getElementById("endBar").style.display = "flex";
+  }
+
+  // --- websocket (fără room)
+  const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const wsUrl = `${wsProto}://${location.host}/ws/chat?role=${encodeURIComponent(role)}`;
+  console.log("[WS]", wsUrl);
+  const ws = new WebSocket(wsUrl);
+
+  const msgs = document.getElementById('msgs');
+  const alerts = document.getElementById('alerts');
+
+  function addMsg(who, text) {
+    const el = document.createElement('div');
+    el.innerHTML = `<b class="${who===role?'me':'other'}">${who}:</b> ${text}`;
+    msgs.appendChild(el); msgs.scrollTop = msgs.scrollHeight;
+    checkScam(who, text);
+  }
+
+  function checkScam(who, text){
+    const bad = /(transfer|urgent|cod|otp|parola|card|iban|paypal|crypto|tax|fine)/i;
+    if (bad.test(text)){
+      const el = document.createElement('div');
+      el.innerHTML = `⚠️ <b>${who}</b>: <i>${text}</i>`;
+      alerts.appendChild(el); alerts.scrollTop = alerts.scrollHeight;
+    }
+  }
+
+  ws.onmessage = (e) => {
+    const {role: who, text} = JSON.parse(e.data);
+    addMsg(who, text);
+  };
+
+  // --- text input
+  const inp = document.getElementById('inp');
+  document.getElementById('send').onclick = () => {
+    const text = inp.value.trim(); if(!text) return;
+    if (ws.readyState === 1) ws.send(JSON.stringify({ text }));
+    inp.value = '';
+  };
+  inp.addEventListener('keydown', e => { if(e.key==='Enter') document.getElementById('send').click(); });
+
+  // --- microfon (opțional)
+  let rec;
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (SpeechRecognition){
+    rec = new SpeechRecognition(); rec.lang='en-US'; rec.continuous=true; rec.interimResults=true;
+    rec.onresult = (e) => {
+      let t = '';
+      for (let i=e.resultIndex; i<e.results.length; i++) t += e.results[i][0].transcript;
+      if (!e.results[e.results.length-1].isFinal) return;
+      ws.readyState===1 && ws.send(JSON.stringify({ text: t.trim() }));
+    }
+  }
+  document.getElementById('micStart').onclick = ()=> rec && rec.start();
+  document.getElementById('micStop').onclick  = ()=> rec && rec.stop();
+
+  // --- End Conversation (apelează /end; serverul printează variabila în terminal)
+  document.getElementById('endBtn').onclick = () => {
+    fetch("/end", { method: "POST" })
+      .then(r => r.json())
+      .then(res => {
+        console.log("Conversation ended:", res);
+        try { ws.close(); } catch {}
+      });
+  };
+</script>
+</body>
+</html>
