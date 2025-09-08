@@ -11,7 +11,7 @@
         ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/ingest');
         window.SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         rec = new window.SpeechRecognition();
-        rec.lang = 'ro-RO'; rec.continuous = true; rec.interimResults = true;
+        rec.lang = 'en-US'; rec.continuous = true; rec.interimResults = true;
         rec.onresult = e => {
           let text = '';
           for (let i=e.resultIndex; i<e.results.length; i++) text += e.results[i][0].transcript;

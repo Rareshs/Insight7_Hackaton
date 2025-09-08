@@ -1,12 +1,14 @@
-# app/main.py (adaugă)
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from collections import defaultdict
+from datetime import datetime
+import os, json
 
 app = FastAPI()
 
-# room -> set of websockets
-rooms: dict[str, set[WebSocket]] = defaultdict(set)
+clients: set[WebSocket] = set()
+conversations: list[dict] = []           
+last_conversation: dict | None = None   
 
 @app.get("/")
 def root():
@@ -14,27 +16,60 @@ def root():
 
 @app.get("/chat")
 def chat_page():
-    # servește o pagină simplă (vezi HTML mai jos)
     return HTMLResponse(open("app/templates/chat.html", "r", encoding="utf-8").read())
 
 @app.websocket("/ws/chat")
-async def ws_chat(ws: WebSocket, room: str, role: str):
+async def ws_chat(ws: WebSocket, role: str = "victim"):
     await ws.accept()
-    rooms[room].add(ws)
+    print(f"[WS CONNECT] role={role}")
+    clients.add(ws)
     try:
         while True:
-            data = await ws.receive_json()  # { "role": "scammer|victim", "text": "..." }
-            # atașăm rolul trimis de client și retransmitem în cameră
-            payload = {"role": role, "text": data.get("text", "")}
+            data = await ws.receive_json()
+            payload = {
+                "t": datetime.now().strftime("%H:%M"),  
+                "role": role,
+                "text": data.get("text", "")
+            }
+            conversations.append(payload)
+
             dead = []
-            for peer in rooms[room]:
+            for peer in clients:
                 try:
                     await peer.send_json(payload)
                 except WebSocketDisconnect:
                     dead.append(peer)
+                except RuntimeError:
+                    dead.append(peer)
             for d in dead:
-                rooms[room].discard(d)
+                clients.discard(d)
     except WebSocketDisconnect:
-        rooms[room].discard(ws)
-        if not rooms[room]:
-            rooms.pop(room, None)
+        print(f"[WS DISCONNECT] role={role}")
+        clients.discard(ws)
+
+
+
+@app.post("/end")
+async def end_conversation(request: Request):
+    global last_conversation, conversations
+
+    last_conversation = {
+        "ended": True,
+        "messages": list(conversations),
+    }
+
+    # === Afișare în terminal ===
+    print("\n📌 Conversația A FOST ÎNCHISĂ. Variabila last_conversation (dicționar):")
+    print(last_conversation)
+
+    # === Salvare în folderul exports/ ===
+    os.makedirs("exports", exist_ok=True)
+    filename = f"exports/conversation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    with open(filename, "w", encoding="utf-8") as f:
+        json.dump(last_conversation, f, ensure_ascii=False, indent=2)
+
+    print(f"📂 Conversația a fost salvată în {filename}")
+
+    return JSONResponse({"status": "ended", "messages": len(last_conversation["messages"])})
+
+
