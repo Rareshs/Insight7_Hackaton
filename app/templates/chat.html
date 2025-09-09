@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="ro">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Chat scam demo</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --bg-2: #0e1328;
+      --panel: rgba(255, 255, 255, 0.06);
+      --panel-br: rgba(255, 255, 255, 0.18);
+      --text: #e9ecf1;
+      --muted: #9aa4b2;
+      --accent: #7dd3fc;
+      /* sky */
+      --accent-2: #a78bfa;
+      /* violet */
+      --good: #22c55e;
+      --bad: #f43f5e;
+      --btn: #0ea5e9;
+      --btn-text: #06121c;
+      --shadow: 0 10px 30px rgba(2, 8, 23, .35), inset 0 1px 0 rgba(255, 255, 255, .06);
+      --radius: 16px;
+    }
+
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #eef2ff;
+        --bg-2: #e5e7ff;
+        --panel: rgba(255, 255, 255, 0.8);
+        --panel-br: rgba(0, 0, 0, 0.08);
+        --text: #0b1220;
+        --muted: #51607a;
+        --btn-text: #ffffff;
+        --shadow: 0 10px 30px rgba(2, 8, 23, .06), inset 0 1px 0 rgba(255, 255, 255, .8);
+      }
+    }
+
+    /* Background gradient */
+    body {
+      margin: 0;
+      min-height: 100svh;
+      color: var(--text);
+      font: 16px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+      background:
+        radial-gradient(1000px 500px at -10% -20%, #0ea5e955 0%, transparent 60%),
+        radial-gradient(900px 500px at 110% 10%, #a78bfaaa 0%, transparent 60%),
+        linear-gradient(180deg, var(--bg) 0%, var(--bg-2) 100%);
+      padding: 24px;
+    }
+
+    /* Container & headings */
+    .container {
+      max-width: 1200px;
+      margin: auto
+    }
+
+    h3 {
+      margin: 0 0 10px;
+      font-weight: 800;
+      letter-spacing: .2px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    h3::before {
+      content: "💬";
+      filter: drop-shadow(0 3px 6px rgba(0, 0, 0, .25));
+    }
+
+    h4 {
+      margin: 0 0 10px;
+      font-weight: 700;
+      opacity: .95
+    }
+
+    /* Grid layout */
+    .wrap {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px
+    }
+
+    @media (max-width: 960px) {
+      .wrap {
+        grid-template-columns: 1fr
+      }
+    }
+
+    /* Glass panels */
+    .pane {
+      border-radius: var(--radius);
+      border: 1px solid var(--panel-br);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      padding: 12px;
+      height: 60vh;
+      overflow: auto;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+
+    /* Top cards wrapper for each column (gives nice spacing) */
+    .col {
+      padding: 14px;
+      border-radius: calc(var(--radius) + 6px);
+      background: linear-gradient(180deg, rgba(255, 255, 255, .06), rgba(255, 255, 255, .02));
+      border: 1px solid rgba(255, 255, 255, .05)
+    }
+
+    /* Inputs & buttons bar */
+    .bar {
+      margin-top: 12px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap
+    }
+
+    input[type=text] {
+      flex: 1;
+      min-width: 220px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1px solid var(--panel-br);
+      background: rgba(255, 255, 255, .08);
+      color: var(--text);
+      outline: none;
+      transition: box-shadow .2s ease, border-color .2s ease, background .2s ease;
+    }
+
+    input[type=text]::placeholder {
+      color: var(--muted)
+    }
+
+    input[type=text]:focus {
+      border-color: color-mix(in oklab, var(--accent) 70%, transparent);
+      box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent) 20%, transparent);
+      background: rgba(255, 255, 255, .12);
+    }
+
+    .bar.controls {
+      display: flex;
+      flex-wrap: wrap;
+      /* ca să nu iasă în afara ecranului pe mobil */
+      gap: 12px;
+      align-items: center;
+    }
+
+    .bar.controls button {
+      flex: 0 0 auto;
+      /* să nu se lungească toate la aceeași lățime */
+    }
+
+    button {
+      appearance: none;
+      border: 0;
+      cursor: pointer;
+      padding: 10px 14px;
+      border-radius: 12px;
+      font-weight: 700;
+      letter-spacing: .2px;
+      color: var(--btn-text);
+      background: linear-gradient(180deg, var(--btn), color-mix(in oklab, var(--btn) 80%, #000));
+      box-shadow: 0 8px 20px rgba(14, 165, 233, .35), inset 0 1px 0 rgba(255, 255, 255, .25);
+      transition: transform .08s ease, filter .2s ease, box-shadow .2s ease;
+    }
+
+    button:hover {
+      filter: brightness(1.06) saturate(1.1)
+    }
+
+    button:active {
+      transform: translateY(1px) scale(.99)
+    }
+
+    /* Secondary buttons */
+    #micStart,
+    #micStop,
+    #endBtn {
+      background: linear-gradient(180deg, #1f2937, #0f172a);
+      color: #e5e7eb;
+      box-shadow: 0 8px 20px rgba(2, 6, 23, .45), inset 0 1px 0 rgba(255, 255, 255, .08);
+    }
+
+    #micStart {
+      background: linear-gradient(180deg, #10b981, #059669)
+    }
+
+    #micStop {
+      background: linear-gradient(180deg, #ef4444, #b91c1c)
+    }
+
+    #endBtn {
+      background: linear-gradient(180deg, #f43f5e, #be123c)
+    }
+
+    /* Message list visual treatment */
+    #msgs>div,
+    #alerts>div {
+      position: relative;
+      padding: 10px 12px;
+      border: 1px solid var(--panel-br);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, .05);
+      margin: 8px 2px;
+      animation: slideIn .24s ease both;
+    }
+
+    #msgs>div {
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05)
+    }
+
+    #alerts>div {
+      background: linear-gradient(180deg, rgba(244, 63, 94, .20), rgba(244, 63, 94, .10));
+      border-color: rgba(244, 63, 94, .35)
+    }
+
+    /* little accent bar on the left for "me" vs "other" */
+    #msgs>div:has(> b.me) {
+      border-left: 4px solid var(--good);
+      background: linear-gradient(180deg, rgba(34, 197, 94, .18), rgba(34, 197, 94, .10));
+    }
+
+    #msgs>div:has(> b.other) {
+      border-left: 4px solid #38bdf8;
+      background: linear-gradient(180deg, rgba(56, 189, 248, .18), rgba(56, 189, 248, .10));
+    }
+
+    b.me {
+      color: var(--good)
+    }
+
+    b.other {
+      color: #38bdf8
+    }
+
+    /* Subtle separators under section titles */
+    h4+.pane,
+    h4+.bar,
+    h4+.pane+.bar {
+      /* keep specificity for the first bars */
+      position: relative;
+    }
+
+    h4 {
+      position: relative;
+      padding-left: 8px;
+    }
+
+    h4:before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 55%;
+      width: 4px;
+      height: 18px;
+      border-radius: 8px;
+      background: linear-gradient(180deg, var(--accent), var(--accent-2));
+      transform: translateY(-50%);
+      box-shadow: 0 0 10px color-mix(in oklab, var(--accent) 55%, transparent);
+    }
+
+    /* Scrollbars */
+    .pane::-webkit-scrollbar {
+      width: 10px
+    }
+
+    .pane::-webkit-scrollbar-thumb {
+      background: linear-gradient(180deg, #7dd3fc, #a78bfa);
+      border-radius: 20px;
+      border: 2px solid transparent;
+      background-clip: padding-box;
+    }
+
+    .pane::-webkit-scrollbar-track {
+      background: transparent
+    }
+
+    /* Tiny helper text style */
+    small {
+      opacity: .7
+    }
+
+    /* Animations */
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateY(6px) scale(.98)
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1)
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h3>Chat demo <span id="role"></span></h3>
+
+
+    <div class="wrap">
+      <div class="col">
+        <h4>Mesaje</h4>
+        <div id="msgs" class="pane"></div>
+
+        <div class="bar">
+          <input id="inp" type="text" placeholder="scrie mesajul..." />
+          <button id="send">Trimite</button>
+        </div>
+
+        <div class="bar controls" id="endBar" style="display:none">
+          <button id="micStart">🎙️ Start voice</button>
+          <button id="micStop">⏹️ Stop</button>
+          <button id="endBtn">❌ End Conversation</button>
+        </div>
+      </div>
+
+      <div class="col">
+        <h4>Scam Detection (simple keywords)</h4>
+        <div id="alerts" class="pane"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // --- util: doar ROLE din URL; nu mai există "room"
+    const params = new URLSearchParams(location.search);
+    const role = params.get('role') || 'victim';
+    document.getElementById('role').textContent = role;
+
+    // butonul End doar pentru victim
+    document.getElementById("endBar").style.display = "flex";  // show the bar
+ 
+   
+
+    // --- websocket (fără room)
+    const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const wsUrl = `${wsProto}://${location.host}/ws/chat?role=${encodeURIComponent(role)}`;
+    console.log("[WS]", wsUrl);
+    const ws = new WebSocket(wsUrl);
+
+    const msgs = document.getElementById('msgs');
+    const alerts = document.getElementById('alerts');
+
+    function addMsg(who, text) {
+      const el = document.createElement('div');
+      el.innerHTML = `<b class="${who === role ? 'me' : 'other'}">${who}:</b> ${text}`;
+      msgs.appendChild(el); msgs.scrollTop = msgs.scrollHeight;
+      checkScam(who, text);
+    }
+
+   async function checkScam(who, text) {
+      if (who !== "scammer") return; 
+
+      try {
+        const res = await fetch("/analyze_message", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: text })
+        });
+        const data = await res.json();
+
+        if (data.is_scam) {
+        const reason = data.reason || "Possible scam message.";
+        const el = document.createElement('div');
+        el.innerHTML = `
+          ⚠️ <b>${who}</b>: <i>${text}</i><br/>
+          <small><b>Why:</b> ${reason}</small>
+        `;
+        alerts.appendChild(el);
+        alerts.scrollTop = alerts.scrollHeight;
+      }
+      } catch (e) {
+        console.error("Scam analysis failed:", e);
+      }
+    }
+
+
+    ws.onmessage = (e) => {
+      const { role: who, text } = JSON.parse(e.data);
+      addMsg(who, text);
+    };
+
+    // --- text input
+    const inp = document.getElementById('inp');
+    document.getElementById('send').onclick = () => {
+      const text = inp.value.trim(); if (!text) return;
+      if (ws.readyState === 1) ws.send(JSON.stringify({ text }));
+      inp.value = '';
+    };
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('send').click(); });
+
+    // --- microfon (opțional)
+    let rec;
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      rec = new SpeechRecognition(); rec.lang = 'en-US'; rec.continuous = true; rec.interimResults = true;
+      rec.onresult = (e) => {
+        let t = '';
+        for (let i = e.resultIndex; i < e.results.length; i++) t += e.results[i][0].transcript;
+        if (!e.results[e.results.length - 1].isFinal) return;
+        ws.readyState === 1 && ws.send(JSON.stringify({ text: t.trim() }));
+      }
+    }
+    document.getElementById('micStart').onclick = () => rec && rec.start();
+    document.getElementById('micStop').onclick = () => rec && rec.stop();
+
+    // --- End Conversation (apelează /end; serverul printează variabila în terminal)
+    document.getElementById('endBtn').onclick = () => {
+      fetch("/end", { method: "POST" })
+        .then(r => r.json())
+        .then(res => {
+          console.log("Conversation ended:", res);
+          try { ws.close(); } catch { }
+          window.location.href = "http://127.0.0.1:8501"; 
+        });
+    };
+  </script>
+</body>
+
+</html>
