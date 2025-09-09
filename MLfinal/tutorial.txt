@@ -5,4 +5,10 @@ KEEP IN MIND ca dureaza ceva timp sa faca antrenarea
 PENTRU RULARE POST-TRAINING, FOLOSESTE COMANDA
 python test_cv.py score-convo --file scammer_lines.txt --artifacts runs/cvtr_e3_a05 --threshold 0.60
 FOLDERUL IN CARE E MODELUL ANTRENAT E runs/
+
 scammer_lines.txt contine input-ul dat spre analiza
+
+PENTRU RULARE REASONING XAI
+py test_xai.py --model .\runs\cvtr_eNew\logreg_tfidf.joblib  --file scammer_lines.txt --artifacts runs/cvtr_eNew --threshold 0.55
+
+ATENTIE mare sa corespunda path-ul unde se afla "--model" si "--artifacts" cu realitatea din local altfel da eroare
