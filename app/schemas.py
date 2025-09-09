@@ -1,17 +1,18 @@
-from pydantic import BaseModel
 from typing import List
+from pydantic import BaseModel
 
-class AnalyzeRequest(BaseModel):
-    conversation_id: str
-    messages: List[str]
-
-class AnalyzeResponse(BaseModel):
-    risk_score: float
-    flagged_words: List[str]
+class Message(BaseModel):
+    t: str
+    role: str
+    text: str
 
 class CallCard(BaseModel):
     conversation_id: str
-    duration: str
     risk_score: float
     status: str
+    messages: List[Message]
 
+class MLStep(BaseModel):
+    message: str
+    score: float
+    label: str

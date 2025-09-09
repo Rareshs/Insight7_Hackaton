@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="ro">
 
@@ -356,14 +357,32 @@
       checkScam(who, text);
     }
 
-    function checkScam(who, text) {
-      const bad = /(transfer|urgent|cod|otp|parola|card|iban|paypal|crypto|tax|fine)/i;
-      if (bad.test(text)) {
+   async function checkScam(who, text) {
+      if (who !== "scammer") return; 
+
+      try {
+        const res = await fetch("/analyze_message", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: text })
+        });
+        const data = await res.json();
+
+        if (data.is_scam) {
+        const reason = data.reason || "Possible scam message.";
         const el = document.createElement('div');
-        el.innerHTML = `⚠️ <b>${who}</b>: <i>${text}</i>`;
-        alerts.appendChild(el); alerts.scrollTop = alerts.scrollHeight;
+        el.innerHTML = `
+          ⚠️ <b>${who}</b>: <i>${text}</i><br/>
+          <small><b>Why:</b> ${reason}</small>
+        `;
+        alerts.appendChild(el);
+        alerts.scrollTop = alerts.scrollHeight;
+      }
+      } catch (e) {
+        console.error("Scam analysis failed:", e);
       }
     }
+
 
     ws.onmessage = (e) => {
       const { role: who, text } = JSON.parse(e.data);
@@ -407,4 +426,3 @@
   </script>
 </body>
 
-</html>
