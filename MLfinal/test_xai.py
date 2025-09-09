@@ -1,15 +1,14 @@
 # test_xai.py — per mesaj + summary final (media + decizie)
 import argparse, json, re, string, sys, os
-from typing import List, Tuple, Iterable
+from typing import List, Tuple, Iterable, Optional, Dict
 from scipy.sparse import issparse
 from math import isfinite
 import numpy as np
-import pandas as pd
 import joblib
 import torch
 
-# ===== Bucket representatives (adjust if you use a different class set) =====
-BUCKET_REP = {
+# ===== Bucket representatives (ajustează dacă ai alt set de clase) =====
+BUCKET_REP: Dict[str, float] = {
     'legitimate': 0.00,
     'neutral': (0.01 + 0.20) / 2.0,
     'slightly_suspicious': (0.20 + 0.40) / 2.0,
@@ -33,11 +32,17 @@ def clean_text(t: str) -> str:
     return re.sub(r"\s+", " ", t).strip()
 
 def _clean_line(s: str) -> str:
-    """Curăță ghilimele/virgula de la capete + spațiile, ca să eviți dublurile la print."""
-    s = s.strip()
-    if (s.startswith('"') and s.endswith('"')) or (s.startswith("'") and s.endswith("'")):
-        s = s[1:-1].strip()
-    if s.endswith(","):
+    """Curăță ghilimele/virgulă de la capete + spațiile (evită dublurile/“amestecul”)."""
+    s = s.strip().strip('\ufeff')  # scapă și de BOM
+    # Dacă linia arată ca "text", (sau 'text', respectiv cu virgulă la final) extrage doar textul.
+    m = re.match(r'^[\s]*[\'"](.+?)[\'"][\s]*,?$', s)
+    if m:
+        s = m.group(1).strip()
+    # Șterge linii „goale” rămase din ghilimele/virgulă
+    if s in {'"', "'", ',', '",', "',"}:
+        return ''
+    # Dacă a rămas o virgulă finală, taie-o
+    if s.endswith(','):
         s = s[:-1].strip()
     return s
 
@@ -67,10 +72,11 @@ def transformer_score(tok, mdl, device, text: str) -> float:
         val = out.logits.detach().cpu().numpy().reshape(-1)[0]
     return float(np.clip(val, 0.0, 1.0))
 
-def text_bar(p: float, width: int = 24) -> str:
-    """ASCII bar used elsewhere if needed."""
-    k = int(round(p * width))
-    return "[" + "█" * k + " " * (width - k) + "]"
+def _ascii_bar(p: float, width: int = 20) -> str:
+    """Compact ASCII probability bar."""
+    p = max(0.0, min(1.0, float(p)))
+    n = int(round(p * width))
+    return "[" + "#" * n + "-" * (width - n) + f"] {p*100:5.1f}%"
 
 # -------- term contributions for predicted class (LR + TFIDF) --------
 def explain_logreg(pipe, raw_text: str, top_k: int = 8):
@@ -84,19 +90,19 @@ def explain_logreg(pipe, raw_text: str, top_k: int = 8):
 
     clf = pipe.named_steps['clf']
     feats = pipe.named_steps['features']
-    X = feats.transform([text])              # may be sparse or dense
+    X = feats.transform([text])              # sparse/dense
     coef_vec = clf.coef_[pred_idx]          # (n_features,)
     bias = float(clf.intercept_[pred_idx])
 
-    # logit and contribution sum depend on X type
+    # logit & contributions
     if issparse(X):
         contrib_val = float((X @ coef_vec).ravel()[0])
     else:
         contrib_val = float((X * coef_vec).sum())
     logit = contrib_val + bias
 
-    # feature names from FeatureUnion
-    names = []
+    # feature names din FeatureUnion
+    names: List[str] = []
     for name, trans in feats.transformer_list:
         if hasattr(trans, 'get_feature_names_out'):
             nms = list(trans.get_feature_names_out())
@@ -104,8 +110,8 @@ def explain_logreg(pipe, raw_text: str, top_k: int = 8):
         else:
             names.append(name)
 
-    # per-feature contributions w_i = x_i * coef_i (top +/-)
-    pairs = []
+    # w_i = x_i * coef_i (top +/-)
+    pairs: List[Tuple[str, float]] = []
     if issparse(X):
         Xcoo = X.tocoo()
         for col, val in zip(Xcoo.col, Xcoo.data):
@@ -137,9 +143,9 @@ def _pretty_token(term: str) -> str:
         return ""
     return t
 
-def _collapse_contribs(pairs: Iterable[tuple[str, float]], top_k: int = 8):
+def _collapse_contribs(pairs: Iterable[Tuple[str, float]], top_k: int = 8):
     """Collapse duplicates after prettifying; return top_k positives and negatives."""
-    agg: dict[str, float] = {}
+    agg: Dict[str, float] = {}
     for term, w in pairs:
         pt = _pretty_token(term)
         if not pt:
@@ -149,13 +155,7 @@ def _collapse_contribs(pairs: Iterable[tuple[str, float]], top_k: int = 8):
     neg = sorted([(t, v) for t, v in agg.items() if v < 0], key=lambda x: x[1])[:top_k]
     return pos, neg
 
-def _ascii_bar(p: float, width: int = 20) -> str:
-    """Compact ASCII probability bar."""
-    p = max(0.0, min(1.0, float(p)))
-    n = int(round(p * width))
-    return "[" + "#" * n + "-" * (width - n) + f"] {p*100:5.1f}%"
-
-def _print_probs_block(probs_dict: dict[str, float], title="Class probabilities"):
+def _print_probs_block(probs_dict: Dict[str, float], title="Class probabilities"):
     print(title + ":")
     for cls, pv in sorted(probs_dict.items(), key=lambda t: t[1], reverse=True):
         print(f"  - {cls:>20}: {_ascii_bar(pv)}")
@@ -182,12 +182,12 @@ def print_friendly_summary(
     raw_text: str,
     pred_label: str,
     pred_prob: float,
-    probs_dict: dict[str, float],
+    probs_dict: Dict[str, float],
     logit: float,
     bias: float,
-    pairs: list[tuple[str, float]],
-    expected_lr: float | None = None,
-    ensemble_score: float | None = None,
+    pairs: List[Tuple[str, float]],
+    expected_lr: Optional[float] = None,
+    ensemble_score: Optional[float] = None,
 ):
     """Pretty, jury-friendly terminal summary."""
     print("\n" + "=" * 80)
@@ -210,10 +210,10 @@ def print_friendly_summary(
     print(f"Model internals (for '{pred_label}'):  logit = {logit:.4f}   |   bias = {bias:.4f}\n")
 
     # 4) Reasons
-    top_pos, top_neg = _collapse_contribs(pairs, top_k=8)
+    top_pos2, top_neg2 = _collapse_contribs(pairs, top_k=8)
     _print_contribs_block(
-        top_pos,
-        top_neg,
+        top_pos2,
+        top_neg2,
         title_pos="Top words/phrases pushing UP (toward this class)",
         title_neg="Top words/phrases pushing DOWN",
     )
@@ -264,8 +264,8 @@ def main():
         exp_score = expected_score_from_probs(classes, proba_vec)
 
         # Try ensemble if transformer is available
-        tr_score = None
-        ensemble = None
+        tr_score: Optional[float] = None
+        ensemble: Optional[float] = None
         if tok is not None and mdl is not None:
             try:
                 tr_score = transformer_score(tok, mdl, device, sample)
@@ -294,15 +294,15 @@ def main():
         }
 
     # Inputs
-    texts = []
+    texts: List[str] = []
     if args.file:
         with open(args.file, "r", encoding="utf-8") as f:
             raw = [ln.strip() for ln in f if ln.strip()]
         lines = [_clean_line(x) for x in raw]
-        lines = [x for x in lines if x]  
+        lines = [x for x in lines if x]  # elimină golurile după curățare
         texts = [" ".join(lines)] if args.as_one else lines
     elif args.text:
-        texts = [args.text]
+        texts = [args.text.strip()]
     else:
         print("Provide --text or --file")
         sys.exit(1)
@@ -313,7 +313,7 @@ def main():
         r = process_one(t)
         results.append(r)
 
-    # === Conversation Summary ===
+    # === Conversation Summary === (o singură dată)
     thr = float(args.threshold)
     finals = [r["final_score"] if r["final_score"] is not None else r["lr_expected"] for r in results]
     avg = sum(finals) / len(finals) if finals else 0.0
@@ -327,11 +327,13 @@ def main():
     sign = "≥" if avg >= thr else "<"
     print(f" Decision:        {dec} (avg {sign} {thr:.2f})")
 
+    # Motivare scurtă
     if avg >= thr:
         print(" Reason: average risk is above threshold; multiple messages scored high.")
     else:
         print(" Reason: average risk stayed below threshold at current alpha/threshold settings.")
 
+    # Obiect pentru aplicație / logging
     summary = {
         "average_score": avg,
         "critical_warning": avg >= thr,
