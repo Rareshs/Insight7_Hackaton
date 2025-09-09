@@ -1,0 +1,8 @@
+PENTRU RULARE IN ANTRENARE FOLOSESTE COMANDA IN TERMINAL(CU TOATE FISIERELE LOCALE IN ACELASI FOLDER) 
+python test_cv.py train-cv --data Transcripts_scored_risk_augmented.csv --k 3 --epochs 3 --alpha 0.5 --cv-transformer --out runs/cvtr_e3_a05
+KEEP IN MIND ca dureaza ceva timp sa faca antrenarea
+
+PENTRU RULARE POST-TRAINING, FOLOSESTE COMANDA
+python test_cv.py score-convo --file scammer_lines.txt --artifacts runs/cvtr_e3_a05 --threshold 0.60
+FOLDERUL IN CARE E MODELUL ANTRENAT E runs/
+scammer_lines.txt contine input-ul dat spre analiza
