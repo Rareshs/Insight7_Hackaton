@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+  <body>
+    <h3>🎤 Demo microfon</h3>
+    <button id="start">Start protecție</button>
+    <button id="stop">Stop</button>
+    <pre id="out"></pre>
+    <script>
+      let rec, ws;
+      document.getElementById('start').onclick = () => {
+        ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/ingest');
+        window.SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        rec = new window.SpeechRecognition();
+        rec.lang = 'en-US'; rec.continuous = true; rec.interimResults = true;
+        rec.onresult = e => {
+          let text = '';
+          for (let i=e.resultIndex; i<e.results.length; i++) text += e.results[i][0].transcript;
+          document.getElementById('out').textContent = text;
+          if (ws && ws.readyState === 1) ws.send(JSON.stringify({call_id:'demo1', text}));
+        };
+        rec.start();
+      };
+      document.getElementById('stop').onclick = () => { if (rec) rec.stop(); if (ws) ws.close(); };
+    </script>
+  </body>
+</html>
