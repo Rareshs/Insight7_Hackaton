@@ -41,6 +41,54 @@ if "selected_call_details" not in st.session_state:
 # Helpers (API + normalizers)
 # =============================
 
+def _map_label_to_ui(label: str):
+    """Mapează etichetele text în (label_ui, color) pentru UI."""
+    l = (label or "").lower()
+    if "high" in l:  # highly_suspicious, high, critical, etc.
+        return ("highly_suspicious", "#ea5455")
+    if "suspici" in l:  # suspicious
+        return ("suspicious", "#ff9f43")
+    if "safe" in l or "low" in l:
+        return ("safe", "#28c76f")
+    if "alert" in l:
+        return ("ALERT", "#ea5455")
+    # fallback
+    return (label or "unknown", "#9aa4b2")
+
+def status_for_ui(score_0_100: int = 0, verdict: str | None = None, max_step_label: str | None = None):
+    """
+    1) dacă avem verdict de la backend (ex. conversations.ml_verdict) -> folosește-l
+    2) altfel, dacă avem label maxim din ml-steps -> folosește-l
+    3) altfel, cade pe praguri numerice (safe/suspect/ALERT)
+    """
+    if verdict:
+        return _map_label_to_ui(verdict)
+
+    if max_step_label:
+        return _map_label_to_ui(max_step_label)
+
+    # fallback numeric (ca înainte)
+    if score_0_100 < 30:
+        return ("safe", "#28c76f")
+    if score_0_100 < 70:
+        return ("suspicious", "#ff9f43")  # înainte aveam "suspect"
+    return ("highly_suspicious", "#ea5455")
+
+
+def fetch_ml_steps(base_url: str, call_id: str):
+    """GET /conversations/{id}/ml-steps -> list[{t, message, score, label}]"""
+    url = _join(base_url, f"/conversations/{call_id}/ml-steps")
+    try:
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        steps = r.json() or []
+        # normalizez scorurile la 0..100 pt. UI
+        series = [_score_to_0_100(s.get("score", 0)) for s in steps]
+        return {"ok": True, "steps": steps, "series": series}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "steps": [], "series": []}
+
+
 def make_mock_details_from_card(call: dict) -> dict:
     score = int(call.get("score", 0))
     series = [max(1, int(score*s/100)) for s in (10, 25, 40, 60, 80, 100)]
@@ -117,114 +165,109 @@ def analyze_messages(base_url: str, messages: list[str]):
 
 def fetch_active_calls(base_url: str):
     """
-    Încearcă:
-      1) GET /conversations     (ce aveți acum)
-      2) GET /calls/active      (fallback propus)
-    Dacă niciuna nu merge, folosește demo-ul local.
+    GET /conversations
+    Returnează doar câmpurile necesare pentru carduri: id, score, live (dacă există), last_update.
     """
-    for path in ("/conversations", "/calls/active"):
-        try:
-            url = _join(base_url, path)
-            resp = requests.get(url, timeout=10)
-            resp.raise_for_status()
-            raw = resp.json() or []
+    try:
+        url = _join(base_url, "/conversations")
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        raw = resp.json() or []
 
-            # acceptă listă sau dict cu chei uzuale
-            if isinstance(raw, dict):
-                items = (
-                    raw.get("conversations")
-                    or raw.get("items")
-                    or raw.get("data")
-                    or raw.get("results")       # <— adăugat
-                    or []
-                )
-            else:
-                items = raw
-
-            norm = []
-            for c in items:
-                if not isinstance(c, dict):
-                    continue
-                rs = _score_to_0_100(c.get("risk_score", 0))
-                dur = _dur_to_mmss(c.get("duration", c.get("duration_seconds", "--:--")))
-                norm.append({
-                    "id": c.get("conversation_id", c.get("id", "----")),
-                    "duration": dur,
-                    "score": rs,
-                    "live": bool(c.get("is_live", c.get("live", False))),
-                    "last_update": c.get("last_update"),
+        items = raw.get("conversations") if isinstance(raw, dict) else raw
+        norm = []
+        for c in items or []:
+            if not isinstance(c, dict):
+                continue
+            rs = _score_to_0_100(c.get("risk_score", 0))
+            norm.append({
+                "id": c.get("conversation_id", c.get("id", "----")),
+                "score": rs,
+                "live": bool(c.get("is_live", c.get("live", False))),
+                "last_update": c.get("last_update") or c.get("created_at"),
+                "ml_verdict": c.get("ml_verdict"),   # <— NOU
+                "_raw": c,
                 })
-            if norm:
-                return {"ok": True, "items": norm}
-        except Exception:
-            pass
+        return {"ok": True, "items": norm}
+    except Exception as e:
+        # fallback demo (fără durată)
+        demo = [
+            {"id": "A1B2", "score": 12, "live": False},
+            {"id": "B4C5", "score": 65, "live": False},
+            {"id": "C3D4", "score": 30, "live": False},
+            {"id": "D6E7", "score": 91, "live": True},
+        ]
+        return {"ok": True, "items": demo, "demo": True, "error": str(e)}
 
-    # fallback demo
-    demo = [
-        {"id": "A1B2", "duration": "02:15", "score": 12,  "live": False},
-        {"id": "B4C5", "duration": "08:42", "score": 65,  "live": False},
-        {"id": "C3D4", "duration": "04:20", "score": 30,  "live": False},
-        {"id": "D6E7", "duration": "12:58", "score": 91,  "live": True},
-    ]
-    return {"ok": True, "items": demo, "demo": True}
 
 def fetch_call_details(base_url: str, call_id: str):
     """
-    Încearcă:
-      1) GET /conversations/{id}
-      2) GET /calls/{id}
-    Normalizează scorul și transcriptul.
-    Dacă pică, întoarce mock detaliat.
+    Construiește detaliile DOAR din:
+      - GET /conversations       -> găsim obiectul conversației și extragem transcript/score/flagged/verdict
+      - GET /conversations/{id}/ml-steps -> pentru grafic (serie + labeluri)
     """
-    for path in (f"/conversations/{call_id}", f"/calls/{call_id}"):
-        try:
-            url = _join(base_url, path)
-            r = requests.get(url, timeout=10)
-            if r.status_code != 200:
-                continue
-            p = r.json() or {}
+    try:
+        # 1) Luăm toate conversațiile și găsim call-ul
+        convs_url = _join(base_url, "/conversations")
+        r = requests.get(convs_url, timeout=10); r.raise_for_status()
+        raw = r.json() or []
+        items = raw.get("conversations") if isinstance(raw, dict) else raw
+        hit = None
+        for c in items or []:
+            cid = c.get("conversation_id") or c.get("id")
+            if cid == call_id:
+                hit = c; break
+        if not hit:
+            return {"ok": False, "error": f"Conversation {call_id} not found"}
 
-            score_ui = _score_to_0_100(p.get("risk_score", 0))
-            series = p.get("score_series", []) or []
-            series = [_score_to_0_100(x) for x in series]
-            duration = _dur_to_mmss(p.get("duration", p.get("duration_seconds", "--:--")))
-            transcript = _extract_transcript(p)
+        # transcript: în unele backend-uri e pe câmpul 'messages'
+        transcript = _extract_transcript(hit)
 
-            details = {
-                "id": p.get("conversation_id", p.get("id", call_id)),
-                "duration": duration,
-                "score": score_ui if score_ui else (series[-1] if series else 0),
-                "score_series": series or [10, 25, 40, 60, 91],
-                "transcript": transcript,
-                "flagged_words": p.get("flagged_words", []),
-                "raw": p,
-                "live": bool(p.get("is_live", p.get("live", False))),
-                "last_update": p.get("last_update", datetime.now().isoformat(timespec="seconds")),
-            }
-            return {"ok": True, "details": details}
-        except Exception:
-            pass
+        # score principal
+        score_ui = _score_to_0_100(hit.get("risk_score", 0))
 
-    # mock detalii dacă API-ul nu e gata
-    sample_transcript = [
-        {"t": "12:41", "speaker": "agent",  "text": "Hello, I'm from your bank. We detected unusual activity."},
-        {"t": "12:42", "speaker": "client", "text": "Oh no, what should I do?"},
-        {"t": "12:42", "speaker": "agent",  "text": "Please read the 6-digit code we just sent."},
-        {"t": "12:43", "speaker": "client", "text": "432118"},
-        {"t": "12:43", "speaker": "agent",  "text": "Now your full card number and CVV, to secure the account."},
-    ]
-    details = {
+        # flagged / verdict (opțional – dacă există în payload)
+        flagged_words = hit.get("flagged_words", [])
+        if not flagged_words:
+            # simplu: derivează din text (fallback)
+            kws = ["otp", "card number", "cvv", "iban", "cod", "parola"]
+            lower_join = " ".join([m.get("text","") for m in transcript]).lower()
+            flagged_words = [k for k in kws if k in lower_join]
+
+        # 2) ml-steps pentru grafic
+        steps_res = fetch_ml_steps(base_url, call_id)
+        series = steps_res["series"]
+        steps = steps_res["steps"]
+
+        # determină labelul cu severitate maximă dintre pași
+        severity_order = ["safe", "suspicious", "highly_suspicious"]
+        def _sev_idx(x):
+            x = (x or "").lower()
+            if "high" in x: return 2
+            if "suspici" in x: return 1
+            return 0
+        max_step_label = None
+        if steps:
+            max_step_label = max((s.get("label") or "" for s in steps), key=_sev_idx, default=None)
+
+        conv_verdict = hit.get("ml_verdict")  # dacă există în /conversations
+
+        details = {
         "id": call_id,
-        "duration": "12:58",
-        "score": random.choice([68, 72, 91]),
-        "score_series": [10, 12, 15, 22, 35, 60, 78, 91],
-        "transcript": sample_transcript,
-        "flagged_words": ["otp", "card number", "cvv"],
-        "raw": {"demo": True},
-        "live": True,
-        "last_update": datetime.now().isoformat(timespec="seconds"),
-    }
-    return {"ok": True, "details": details, "demo": True}
+        "score": score_ui if score_ui else (series[-1] if series else 0),
+        "score_series": series or [],
+        "transcript": transcript,
+        "flagged_words": flagged_words,
+        "raw": {"conversation": hit, "ml_steps": steps},
+        "live": bool(hit.get("is_live", hit.get("live", False))),
+        "last_update": hit.get("last_update") or hit.get("created_at") or datetime.now().isoformat(timespec="seconds"),
+        "ml_verdict": conv_verdict,          # <— NOU
+        "max_step_label": max_step_label,    # <— NOU
+        }
+        return {"ok": True, "details": details}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
 
 def status_from_score(score_0_100: int):
     if score_0_100 < 30:
@@ -331,7 +374,8 @@ with tab_wall:
     cols = st.columns(2)
     for i, call in enumerate(calls):
         with cols[i % 2]:
-            label, color = status_from_score(call.get("score", 0))
+            verdict = call.get("ml_verdict") or (call.get("_raw", {}) or {}).get("ml_verdict")
+            label, color = status_for_ui(call.get("score", 0), verdict=verdict)
             live_dot = "<span style='color:#ff4757'>●</span> Live" if call.get("live") else ""
             score_display = (call.get("score", 0) / 100)
             st.markdown(
@@ -341,7 +385,7 @@ with tab_wall:
                     <div style='font-weight:600;font-size:18px'>Call #{call.get('id','----')}</div>
                     <div>{live_dot}</div>
                   </div>
-                  <div style='opacity:.85;margin-top:6px'>{call.get('duration','--:--')}</div>
+                  <!--<div style='opacity:.85;margin-top:6px'>{call.get('duration','--:--')}</div>-->
                   <div style='margin-top:8px'>Scam Score: {score_display:.2f}</div>
                   <div style='margin-top:6px;color:{color};font-weight:600'>{label}</div>
                 </div>
@@ -366,22 +410,38 @@ if st.session_state.get("selected_call_id") and st.session_state.get("selected_c
     st.markdown("---")
     st.markdown(f"### 📄 Call Details — **#{d['id']}**")
 
-    # METRICI SUS
-    top1, top2, top3, top4 = st.columns(4)
+        # METRICI SUS (fără Duration)
+    top1, top3, top4 = st.columns(3)
     with top1:
         st.metric("Risk Score", f"{d['score']}/100")
-    with top2:
-        st.metric("Duration", d.get("duration", "--:--"))
     with top3:
-        label, color = status_from_score(d['score'])
-        st.markdown(f"<div style='color:{color};font-weight:700;font-size:18px'>{label}</div>", unsafe_allow_html=True)
+        label, color = status_for_ui(
+            d['score'],
+            verdict=d.get("ml_verdict"),
+            # max_step_label=d.get("max_step_label")
+        )
+        st.markdown(
+            f"<div style='color:{color};font-weight:700;font-size:18px'>{label}</div>",
+            unsafe_allow_html=True,
+        )
     with top4:
         live_badge = "<span style='color:#ff4757'>●</span> Live" if d.get("live") else "Ended"
         st.markdown(live_badge, unsafe_allow_html=True)
 
-    # ISTORIC SCOR
+    # ISTORIC SCOR (grafic + etichete din /conversations/{id}/ml-steps)
     st.caption("Score history")
     st.line_chart({"risk": d.get("score_series", [])})
+
+    # Listează punctele (label + mesaj) din /ml-steps — fără timp
+    steps_for_labels = (d.get("raw", {}) or {}).get("ml_steps", [])
+    if steps_for_labels:
+        st.caption("Risk points:")
+        for idx, s in enumerate(steps_for_labels, start=1):
+            lbl = s.get("label", "")
+            msg = s.get("message", "")
+            sc  = s.get("score", 0)
+            sc100 = int(round(sc * 100)) if isinstance(sc, (int, float)) else sc
+            st.markdown(f"- **`{lbl}`** — {msg} _(score {sc100})_")
 
     # CONVERSAȚIA
     st.subheader("Conversation")
@@ -415,3 +475,5 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+
+
