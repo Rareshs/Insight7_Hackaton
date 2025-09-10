@@ -331,21 +331,21 @@
   </div>
 
   <script>
-    // --- util: doar ROLE din URL; nu mai există "room"
     const params = new URLSearchParams(location.search);
     const role = params.get('role') || 'victim';
     document.getElementById('role').textContent = role;
 
-    // butonul End doar pentru victim
-    document.getElementById("endBar").style.display = "flex";  // show the bar
+
+    document.getElementById("endBar").style.display = "flex";  
  
    
-
-    // --- websocket (fără room)
     const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
     const wsUrl = `${wsProto}://${location.host}/ws/chat?role=${encodeURIComponent(role)}`;
     console.log("[WS]", wsUrl);
     const ws = new WebSocket(wsUrl);
+
+    window.addEventListener('beforeunload', () => { try { ws.close(); } catch {} });
+    window.addEventListener('pagehide',      () => { try { ws.close(); } catch {} }); // iOS/Safari
 
     const msgs = document.getElementById('msgs');
     const alerts = document.getElementById('alerts');
@@ -354,64 +354,71 @@
       const el = document.createElement('div');
       el.innerHTML = `<b class="${who === role ? 'me' : 'other'}">${who}:</b> ${text}`;
       msgs.appendChild(el); msgs.scrollTop = msgs.scrollHeight;
-      checkScam(who, text);
     }
 
-   async function checkScam(who, text) {
-      if (who !== "scammer") return; 
+  async function checkScam(who, text) {
+  if (who !== "scammer") return;
 
-      try {
-        const res = await fetch("/analyze_message", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: text })
-        });
-        const data = await res.json();
-
-        if (data.is_scam) {
-        const reason = data.reason || "Possible scam message.";
-        const el = document.createElement('div');
-        el.innerHTML = `
-          ⚠️ <b>${who}</b>: <i>${text}</i><br/>
-          <small><b>Why:</b> ${reason}</small>
-        `;
-        alerts.appendChild(el);
-        alerts.scrollTop = alerts.scrollHeight;
-      }
-      } catch (e) {
-        console.error("Scam analysis failed:", e);
-      }
+  try {
+    const res = await fetch("/analyze_message", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: text, session_id: "default" })
+    });
+    const data = await res.json();
+    const result = data.result || {};              // <-- schimbare
+    if (result.is_scam) {                          // <-- schimbare
+      const reason = result.reason || "Possible scam message.";  // <-- schimbare
+      const el = document.createElement("div");
+      el.innerHTML = `
+        ⚠️ <b>${who}</b>: <i>${text}</i><br/>
+        <small><b>Why:</b> ${reason}</small>
+      `;
+      alerts.appendChild(el);
+      alerts.scrollTop = alerts.scrollHeight;
     }
+  } catch (e) {
+    console.error("Scam analysis failed:", e);
+  }
+}
 
+// primești mesaje prin WS → afișezi + rulezi analiza
+ws.onmessage = (e) => {
+  const { role: who, text } = JSON.parse(e.data);
+  addMsg(who, text);
+  checkScam(who, text);              // <-- important
+};
 
-    ws.onmessage = (e) => {
-      const { role: who, text } = JSON.parse(e.data);
-      addMsg(who, text);
-    };
+// input text → trimite doar prin WS (serverul tău redistribuie)
+const inp = document.getElementById("inp");
+document.getElementById("send").onclick = () => {
+  const text = inp.value.trim();
+  if (!text) return;
+  if (ws.readyState === 1) ws.send(JSON.stringify({ text }));
+  inp.value = "";
+};
+inp.addEventListener("keydown", e => {
+  if (e.key === "Enter") document.getElementById("send").click();
+});
 
-    // --- text input
-    const inp = document.getElementById('inp');
-    document.getElementById('send').onclick = () => {
-      const text = inp.value.trim(); if (!text) return;
-      if (ws.readyState === 1) ws.send(JSON.stringify({ text }));
-      inp.value = '';
-    };
-    inp.addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('send').click(); });
+// microfon (opțional)
+let rec;
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (SpeechRecognition) {
+  rec = new SpeechRecognition();
+  rec.lang = "en-US";
+  rec.continuous = true;
+  rec.interimResults = true;
+  rec.onresult = (e) => {
+    let t = "";
+    for (let i = e.resultIndex; i < e.results.length; i++) t += e.results[i][0].transcript;
+    if (!e.results[e.results.length - 1].isFinal) return;
+    if (ws.readyState === 1) ws.send(JSON.stringify({ text: t.trim() }));
+  };
+}
+document.getElementById("micStart").onclick = () => rec && rec.start();
+document.getElementById("micStop").onclick = () => rec && rec.stop();
 
-    // --- microfon (opțional)
-    let rec;
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      rec = new SpeechRecognition(); rec.lang = 'en-US'; rec.continuous = true; rec.interimResults = true;
-      rec.onresult = (e) => {
-        let t = '';
-        for (let i = e.resultIndex; i < e.results.length; i++) t += e.results[i][0].transcript;
-        if (!e.results[e.results.length - 1].isFinal) return;
-        ws.readyState === 1 && ws.send(JSON.stringify({ text: t.trim() }));
-      }
-    }
-    document.getElementById('micStart').onclick = () => rec && rec.start();
-    document.getElementById('micStop').onclick = () => rec && rec.stop();
 
     // --- End Conversation (apelează /end; serverul printează variabila în terminal)
     document.getElementById('endBtn').onclick = () => {
